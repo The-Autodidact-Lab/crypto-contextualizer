@@ -1,2 +1,0 @@
-# Abstract
-Multi-agent systems are becoming increasingly common as developers attempt to drill down on large language model (LLM) capabilities and expand the capabilities of single-instance models. Specifically, developments like Google's [A2A](https://developers.googleblog.com/en/a2a-a-new-era-of-agent-interoperability/), [Pydantic AI](https://ai.pydantic.dev/). LangGraph, Autogen, and other multi-agent frameworks have brought about a new host of architectures and frameworks that drastically decrease the barrier to entry to create systems akin to Minsky's *Society of Mind* 
