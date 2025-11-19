@@ -1,0 +1,3 @@
+[submodule "evals"]
+	path = evals
+	url = https://github.com/The-Autodidact-Lab/MAS-evals
