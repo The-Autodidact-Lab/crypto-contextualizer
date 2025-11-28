@@ -22,3 +22,14 @@ JACK -- LIT REVIEW:
 ** - [SagaLLM](https://dl.acm.org/doi/pdf/10.14778/3750601.3750611)
     - will be useful re: what to include in the metadata for each of the episodes
 - [CA-MAS survey](https://arxiv.org/pdf/2402.01968)
+
+---
+
+# 28 Nov
+NEXT:
+- [ ] finish up evals framework + scale up evals (1-2h_)
+- [ ] implement base multi-agent system (1h)
+- [ ] add Basis contextualizer/ID system + fine-tune (3h)
+- [ ] run evals (literally 1 command)
+- [ ] based on evals and stats, generate plots (idk)
+- [ ] writeup
