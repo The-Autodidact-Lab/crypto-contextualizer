@@ -1,0 +1,16 @@
+[project]
+name = "cs2821r-final"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dotenv>=0.9.9",
+    "google-generativeai>=0.8.5",
+    "pytest>=9.0.1",
+]
+
+[tool.pytest.ini_options]
+markers = [
+  "integration: integration tests that may call external services like Gemini"
+]
