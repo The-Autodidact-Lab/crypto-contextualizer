@@ -28,12 +28,12 @@ JACK -- LIT REVIEW:
 # 28 Nov
 NEXT:
 - [x] implement base multi-agent system (1h)
-- [-] add Basis contextualizer/ID system
+- [x] add Basis contextualizer/ID system
     - [x] implement the Basis cortex
-    - [ ] create a demo runner agent system that wires everything together
-    - [ ] run a demo script to check that everything is ingested correctly
-- [ ] finish up evals framework + scale up evals (1-2h)
-- [ ] run evals (literally 1 command)
+    - [x] create a demo runner agent system that wires everything together
+    - [x] run a demo script to check that everything is ingested correctly
+~~- [ ] finish up evals framework + scale up evals (1-2h)~~
+- [ ] run existing evals (GAIA2/REALM-bench) (literally 1 command)
 - [ ] based on evals and stats, generate plots (idk)
 - [-] writeup
     - [x] abstract
