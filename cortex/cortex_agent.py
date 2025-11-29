@@ -24,7 +24,7 @@ from are.simulation.agents.are_simulation_agent_config import LLMEngineConfig
 from are.simulation.agents.llm.types import MMObservation
 from are.simulation.tools import Tool
 
-from cortex.context_cortex import ContextCortex, cortex
+from cortex.context_cortex import ContextCortex
 
 
 class IngestEpisodeTool(Tool):
@@ -40,7 +40,7 @@ class IngestEpisodeTool(Tool):
     injected from the surrounding `CortexAgent` via a pending-context getter.
     """
 
-    def __init__(self, get_pending_context) -> None:
+    def __init__(self, get_pending_context, cortex: ContextCortex) -> None:
         self.name = "ingest_episode"
         self.description = (
             "Ingest the current trace into the shared Cortex. "
@@ -68,6 +68,7 @@ class IngestEpisodeTool(Tool):
         self.output_type = "string"
         super().__init__()
         self._get_pending_context = get_pending_context
+        self._cortex = cortex
 
     def forward(self, trace_summary: str, mask_str: str) -> str:
         ctx = self._get_pending_context()
@@ -79,7 +80,7 @@ class IngestEpisodeTool(Tool):
         raw_trace: Any = ctx["raw_trace"]
         metadata: Optional[Dict[str, Any]] = ctx.get("metadata")
 
-        episode = cortex.ingest_episode(
+        episode = self._cortex.ingest_episode(
             episode_id=episode_id,
             source_agent_id=source_agent_id,
             raw_trace=raw_trace,
@@ -112,7 +113,10 @@ class CortexAgent(BaseAgent):
         self._pending_ingest: Optional[Dict[str, Any]] = None
 
         # agent config
-        ingest_tool = IngestEpisodeTool(get_pending_context=self._get_pending_ingest)
+        ingest_tool = IngestEpisodeTool(
+            get_pending_context=self._get_pending_ingest,
+            cortex=self.cortex
+        )
         tools: Dict[str, Tool] = {"ingest_episode": ingest_tool}
 
         engine_config = LLMEngineConfig(

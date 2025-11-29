@@ -19,8 +19,10 @@ reason about and propose masks, typically as binary strings like "1", "11",
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+from termcolor import colored
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +72,7 @@ class ContextCortex:
     def __init__(self) -> None:
         self._agents: Dict[str, AgentIdentity] = {}
         self._episodes: Dict[str, ContextEpisode] = {}
+        self.logger = logging.getLogger(__name__)
 
     # ------------------------------------------------------------------
     # Bitmask helpers
@@ -138,6 +141,13 @@ class ContextCortex:
         """
         identity = AgentIdentity(agent_id=agent_id, mask=mask)
         self._agents[agent_id] = identity
+        mask_str = self.format_mask(mask)
+        self.logger.debug(
+            colored(
+                f"[CORTEX] Registered agent '{agent_id}' with mask={mask} (binary: 0b{mask_str})",
+                "cyan",
+            )
+        )
         return identity
 
     def update_agent_mask(self, agent_id: str, mask_str: str) -> Optional[AgentIdentity]:
@@ -162,6 +172,25 @@ class ContextCortex:
             List of AgentIdentity objects containing agent_id and mask for each registered agent.
         """
         return list(self._agents.values())
+    
+    def get_episode_count(self) -> int:
+        """Return the total number of episodes in the cortex."""
+        return len(self._episodes)
+    
+    def get_all_episodes_info(self) -> List[Dict[str, Any]]:
+        """
+        Return debug information about all episodes (for logging purposes).
+        Returns a list of dicts with episode_id, source_agent_id, and access_mask.
+        """
+        return [
+            {
+                "episode_id": ep.episode_id,
+                "source_agent_id": ep.source_agent_id,
+                "access_mask": ep.access_mask,
+                "access_mask_str": self.format_mask(ep.access_mask),
+            }
+            for ep in self._episodes.values()
+        ]
 
     
     # ------------------------------------------------------------------
@@ -184,10 +213,26 @@ class ContextCortex:
         provides only `trace_summary` and `mask_str`; all other fields come from
         the surrounding agent logic.
         """
+        access_mask = self.parse_mask(mask_str)
+        mask_str_formatted = self.format_mask(access_mask)
+        self.logger.info(
+            colored(
+                f"[CORTEX] Ingesting episode '{episode_id}' from '{source_agent_id}' "
+                f"with mask_str='{mask_str}' → mask={access_mask} (binary: 0b{mask_str_formatted})",
+                "green",
+                attrs=["bold"],
+            )
+        )
+        self.logger.debug(
+            colored(
+                f"[CORTEX] Episode summary: {trace_summary[:100] if len(trace_summary) > 100 else trace_summary}",
+                "green",
+            )
+        )
         episode = self.add_episode(
             episode_id=episode_id,
             source_agent_id=source_agent_id,
-            access_mask=self.parse_mask(mask_str),
+            access_mask=access_mask,
             raw_trace=raw_trace,
             summary=trace_summary,
             metadata=metadata,
@@ -219,6 +264,15 @@ class ContextCortex:
             metadata=metadata or {},
         )
         self._episodes[episode_id] = episode
+        mask_str = self.format_mask(access_mask)
+        self.logger.debug(
+            colored(
+                f"[CORTEX] Stored episode '{episode_id}' from '{source_agent_id}' "
+                f"with access_mask={access_mask} (binary: 0b{mask_str}), "
+                f"total_episodes={len(self._episodes)}",
+                "cyan",
+            )
+        )
         return episode
 
     # ------------------------------------------------------------------
@@ -243,13 +297,56 @@ class ContextCortex:
         When include_raw is False, raw_trace is omitted in the returned objects
         to keep them lightweight; the cortex still retains the full trace.
         """
+        self.logger.debug(
+            colored(
+                f"[CORTEX] get_episodes_for_agent called for agent_id='{agent_id}', include_raw={include_raw}",
+                "cyan",
+                attrs=["bold"],
+            )
+        )
+        
         identity = self._agents.get(agent_id)
         if identity is None:
+            self.logger.warning(
+                colored(
+                    f"[CORTEX] ⚠ Agent '{agent_id}' not found in registry! Available agents: {list(self._agents.keys())}",
+                    "red",
+                    attrs=["bold"],
+                )
+            )
             return []
+
+        agent_mask_str = self.format_mask(identity.mask)
+        self.logger.debug(
+            colored(
+                f"[CORTEX] Agent '{agent_id}' has mask={identity.mask} (binary: 0b{agent_mask_str})",
+                "cyan",
+            )
+        )
+
+        total_episodes = len(self._episodes)
+        self.logger.debug(
+            colored(
+                f"[CORTEX] Total episodes in cortex: {total_episodes}",
+                "cyan",
+            )
+        )
 
         accessible: List[ContextEpisode] = []
         for episode in self._episodes.values():
-            if self._has_access(identity.mask, episode.access_mask):
+            episode_mask_str = self.format_mask(episode.access_mask)
+            has_access = self._has_access(identity.mask, episode.access_mask)
+            bitwise_result = identity.mask & episode.access_mask
+            
+            if has_access:
+                self.logger.debug(
+                    colored(
+                        f"[CORTEX] ✓ Episode '{episode.episode_id}' (source: {episode.source_agent_id}) "
+                        f"ACCESSIBLE: agent_mask={identity.mask} (0b{agent_mask_str}) & "
+                        f"episode_mask={episode.access_mask} (0b{episode_mask_str}) = {bitwise_result} != 0",
+                        "green",
+                    )
+                )
                 if include_raw:
                     accessible.append(episode)
                 else:
@@ -263,7 +360,108 @@ class ContextCortex:
                             metadata=episode.metadata,
                         )
                     )
+            else:
+                self.logger.debug(
+                    colored(
+                        f"[CORTEX] ✗ Episode '{episode.episode_id}' (source: {episode.source_agent_id}) "
+                        f"BLOCKED: agent_mask={identity.mask} (0b{agent_mask_str}) & "
+                        f"episode_mask={episode.access_mask} (0b{episode_mask_str}) = {bitwise_result} == 0",
+                        "yellow",
+                    )
+                )
+        
+        self.logger.info(
+            colored(
+                f"[CORTEX] Agent '{agent_id}' can access {len(accessible)}/{total_episodes} episode(s)",
+                "green" if accessible else "yellow",
+                attrs=["bold"],
+            )
+        )
+        
+        # Log summary at the end
+        if total_episodes > 0:
+            self._log_cortex_summary()
+        
         return accessible
+    
+    def _log_cortex_summary(self) -> None:
+        """
+        Log a summary of all episodes and which agents can access them.
+        """
+        all_agents = self.get_all_agents()
+        all_episodes = list(self._episodes.values())
+        
+        if not all_episodes:
+            return
+        
+        self.logger.info(
+            colored(
+                f"[CORTEX] === CORTEX SUMMARY ===",
+                "cyan",
+                attrs=["bold"],
+            )
+        )
+        self.logger.info(
+            colored(
+                f"[CORTEX] Total episodes: {len(all_episodes)}, Total agents: {len(all_agents)}",
+                "cyan",
+            )
+        )
+        
+        # For each agent, show which episodes they can access
+        for agent in all_agents:
+            agent_mask_str = self.format_mask(agent.mask)
+            accessible_episodes = [
+                ep for ep in all_episodes
+                if self._has_access(agent.mask, ep.access_mask)
+            ]
+            self.logger.info(
+                colored(
+                    f"[CORTEX] Agent '{agent.agent_id}' (mask=0b{agent_mask_str}): "
+                    f"can access {len(accessible_episodes)}/{len(all_episodes)} episode(s)",
+                    "green" if accessible_episodes else "yellow",
+                )
+            )
+            if accessible_episodes:
+                episode_list = ", ".join([
+                    f"{ep.episode_id}(mask=0b{self.format_mask(ep.access_mask)}, source={ep.source_agent_id})"
+                    for ep in accessible_episodes
+                ])
+                self.logger.debug(
+                    colored(
+                        f"[CORTEX]   Accessible episodes: {episode_list}",
+                        "green",
+                    )
+                )
+        
+        # Show all episodes and their access masks
+        self.logger.debug(
+            colored(
+                f"[CORTEX] All episodes:",
+                "cyan",
+            )
+        )
+        for ep in all_episodes:
+            ep_mask_str = self.format_mask(ep.access_mask)
+            accessible_by = [
+                agent.agent_id for agent in all_agents
+                if self._has_access(agent.mask, ep.access_mask)
+            ]
+            self.logger.debug(
+                colored(
+                    f"[CORTEX]   {ep.episode_id}: mask=0b{ep_mask_str}, "
+                    f"source={ep.source_agent_id}, accessible_by=[{', '.join(accessible_by)}]",
+                    "cyan",
+                )
+            )
+        
+        self.logger.info(
+            colored(
+                f"[CORTEX] === END CORTEX SUMMARY ===",
+                "cyan",
+                attrs=["bold"],
+            )
+        )
 
 # easy singleton for tool call
 cortex = ContextCortex()

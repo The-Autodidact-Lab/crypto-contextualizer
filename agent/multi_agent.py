@@ -12,9 +12,11 @@ from are.simulation.agents.default_agent.prompts import (
     DEFAULT_ARE_SIMULATION_APP_AGENT_REACT_JSON_SYSTEM_PROMPT,
 )
 from are.simulation.agents.default_agent.termination_methods.are_simulation import (
+    get_gaia2_termination_step,
     termination_step_are_simulation_final_answer,
 )
 from are.simulation.apps import App
+from are.simulation.apps.agent_user_interface import AgentUserInterface
 from are.simulation.tools import Tool
 from are.simulation.tool_utils import AppToolAdapter
 
@@ -60,8 +62,31 @@ class MultiAgent:
         self.cortex_agent = CortexAgent(api_key=os.getenv("GEMINI_API_KEY"), cortex=self.cortex)
         
         self.app_agents = []
+        aui_tools_dict = {}
+        
         # create app agents with cortex integration for each app
         for i, app in enumerate(apps):
+            # AgUI is a special case
+            if isinstance(app, AgentUserInterface):
+                app.wait_for_user_response = False
+                aui_tools = app.get_tools()
+                tools_to_remove = {
+                    "AgentUserInterface__get_last_message_from_user",
+                    "AgentUserInterface__get_last_message_from_agent",
+                    "AgentUserInterface__get_last_unread_messages",
+                    "AgentUserInterface__get_all_messages",
+                }
+                filtered_aui_tools = [
+                    tool for tool in aui_tools 
+                    if tool.name not in tools_to_remove
+                ]
+                aui_tools_dict = {
+                    tool.name: AppToolAdapter(tool) 
+                    for tool in filtered_aui_tools
+                }
+                continue
+            
+            # all other apps
             app_tools_dict = {
                 tool.name: AppToolAdapter(tool) for tool in app.get_tools()
             }
@@ -109,8 +134,7 @@ class MultiAgent:
             for app_agent in self.app_agents
         }
         
-        # add final_answer tool to orchestrator so it can terminate properly
-        orchestrator_tools = {**self.subagents, "final_answer": FinalAnswerTool()}
+        orchestrator_tools = {**self.subagents, **aui_tools_dict, "final_answer": FinalAnswerTool()}
 
         # initialise orchestrator with app tools
         self.orchestrator = OrchestratorAgent(
@@ -120,7 +144,7 @@ class MultiAgent:
             agent_mask=0b1,
             tools=orchestrator_tools,
             action_executor=JsonActionExecutor(tools=orchestrator_tools),
-            termination_step=termination_step_are_simulation_final_answer(),
+            termination_step=get_gaia2_termination_step(),
             **kwargs,
         )
 
