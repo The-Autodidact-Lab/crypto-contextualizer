@@ -32,8 +32,10 @@ NEXT:
     - [x] implement the Basis cortex
     - [x] create a demo runner agent system that wires everything together
     - [x] run a demo script to check that everything is ingested correctly
-~~- [ ] finish up evals framework + scale up evals (1-2h)~~
-- [ ] run existing evals (GAIA2) (literally 1 command)
+- [x] wire into existing ARE system
+F
+    - [ ] run existing evals (GAIA2) (literally 1 command)
+    - [ ] fine-tune based on mini-eval set
 - [ ] based on evals and stats, generate plots (idk)
 - [-] writeup
     - [x] abstract
