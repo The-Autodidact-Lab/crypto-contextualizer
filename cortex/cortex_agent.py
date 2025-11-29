@@ -1,19 +1,28 @@
 from __future__ import annotations
 
+from decimal import Context
 from typing import Any, Dict, Optional, Union
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from evals.are.simulation.agents.default_agent.base_agent import BaseAgent
-from evals.are.simulation.agents.default_agent.tools.json_action_executor import (
+from are.simulation.agents.agent_log import ToolCallLog
+from are.simulation.agents.default_agent.base_agent import (
+    BaseAgent,
+    TerminationStep,
+)
+from are.simulation.agents.default_agent.tools.json_action_executor import (
     JsonActionExecutor,
 )
-from evals.are.simulation.agents.llm.llm_engine_builder import LLMEngineBuilder
-from evals.are.simulation.agents.are_simulation_agent_config import LLMEngineConfig
-from evals.are.simulation.agents.llm.types import MMObservation
-from evals.are.simulation.tools import Tool
+from are.simulation.agents.default_agent.prompts.system_prompt import (
+    REACT_LOOP_JSON_SYSTEM_PROMPT,
+    JSON_AGENT_HINTS,
+)
+from are.simulation.agents.llm.llm_engine_builder import LLMEngineBuilder
+from are.simulation.agents.are_simulation_agent_config import LLMEngineConfig
+from are.simulation.agents.llm.types import MMObservation
+from are.simulation.tools import Tool
 
 from cortex.context_cortex import ContextCortex, cortex
 
@@ -95,28 +104,14 @@ class CortexAgent(BaseAgent):
     api_key: str = os.getenv("GEMINI_API_KEY")
     model: str = "gemini-2.0-flash"
     provider: str = "gemini"
-    system_prompt: str = """
-You are a Cortex agent. You are responsible for maintaining the shared Cortex
-memory for all agents.
+    system_prompt: str = ""
 
-Given a specific trace:
-- Carefully read and understand what happened.
-- Produce a concise, high-signal summary (2–5 sentences).
-- Propose an access-control mask as a binary string (e.g. "1", "10", "11") that
-  indicates which agent groups should see this episode.
-- Then call the `ingest_episode` tool EXACTLY ONCE with:
-  - `trace_summary`: your summary text.
-  - `mask_str`: the mask string you chose.
-
-Do not call any other tools. If you are unsure about the exact mask, choose a
-reasonable default and clearly document your choice in the summary.
-"""
-
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, cortex: ContextCortex):
         self.api_key = api_key
+        self.cortex = cortex
         self._pending_ingest: Optional[Dict[str, Any]] = None
 
-        # set up ingest tool
+        # agent config
         ingest_tool = IngestEpisodeTool(get_pending_context=self._get_pending_ingest)
         tools: Dict[str, Tool] = {"ingest_episode": ingest_tool}
 
@@ -128,12 +123,23 @@ reasonable default and clearly document your choice in the summary.
 
         action_executor = JsonActionExecutor(tools=tools)
 
+        termination_step = TerminationStep(
+            condition=self._termination_condition_ingest_episode,
+            function=lambda _: None,
+            name="cortex_ingest_termination",
+        )
+
+        system_prompt = REACT_LOOP_JSON_SYSTEM_PROMPT.format(
+            json_agent_hints=JSON_AGENT_HINTS
+        )
+
         super().__init__(
             llm_engine=llm_engine,
-            system_prompts={"system_prompt": self.system_prompt},
+            system_prompts={"system_prompt": system_prompt},
             tools=tools,
             action_executor=action_executor,
             max_iterations=2,
+            termination_step=termination_step,
         )
 
     # ------------------------------------------------------------------
@@ -142,6 +148,17 @@ reasonable default and clearly document your choice in the summary.
 
     def _get_pending_ingest(self) -> Optional[Dict[str, Any]]:
         return self._pending_ingest
+    
+    def _termination_condition_ingest_episode(self, agent: BaseAgent) -> bool:
+        """
+        Termination condition: terminate immediately after ingest_episode is called successfully.
+        """
+        tool_call = agent.get_last_log_of_type(ToolCallLog)
+        tool_name = tool_call.tool_name if tool_call else ""
+        if isinstance(agent.action_executor, JsonActionExecutor):
+            if tool_name == "ingest_episode":
+                return True
+        return agent.iterations >= agent.max_iterations
 
     # ------------------------------------------------------------------
     # Public API
@@ -171,28 +188,70 @@ reasonable default and clearly document your choice in the summary.
             "metadata": metadata or {},
         }
 
-        # Build the task for the underlying ReAct loop.
+        # format trace and prompt
         trace_repr = str(raw_trace)
-        task = (
-            "You are given an agent trace.\n\n"
-            "[TRACE]\n"
-            f"{trace_repr}\n\n"
-            "Your job:\n"
-            "1. Read and understand the trace.\n"
-            "2. Produce a concise, high-signal summary (2–5 sentences).\n"
-            "3. Decide on an appropriate access-control mask string `mask_str` "
-            '(binary like "1", "10", "11") indicating which agent groups should '
-            "see this episode.\n"
-            "4. Call the `ingest_episode` tool EXACTLY ONCE with:\n"
-            "   - trace_summary: your summary\n"
-            "   - mask_str: the mask string you chose\n"
-            "After calling the tool, you may provide a very short confirmation.\n"
-        )
+        
+        # Get list of registered agents from cortex if available
+        agents_info = ""
+        registered_agents = self.cortex.get_all_agents()
+        if registered_agents:
+            agents_list = []
+            for agent_identity in registered_agents:
+                mask_str = ContextCortex.format_mask(agent_identity.mask)
+                agents_list.append(f"- {agent_identity.agent_id} (mask: {mask_str}, binary: 0b{mask_str})")
+            agents_info = f"""
+=== REGISTERED AGENTS ===
+The following agents are registered in the system:
+{chr(10).join(agents_list)}
+
+Use these agent masks when deciding which agents should see this episode. Match the mask format exactly.
+=== END REGISTERED AGENTS ===
+
+"""
+        
+        task = f"""You are given an agent trace to ingest into the shared Cortex memory.
+
+[TRACE]
+{trace_repr}
+
+{agents_info}
+
+Your task:
+1. Read and understand the trace.
+2. Produce a concise, high-signal summary (2–5 sentences).
+3. Decide on an appropriate access-control mask string `mask_str` (binary like "1", "10", "11") indicating which agent groups should see this episode.
+4. Call the `ingest_episode` tool EXACTLY ONCE with:
+   - trace_summary: your summary
+   - mask_str: the mask string you chose
+
+After successfully calling `ingest_episode`, the task is complete. Do not provide any additional output or confirmation.
+
+=== ACCESS MASK GUIDELINES ===
+The access mask determines which agents can see this episode. Use bitwise binary strings where each bit position represents an agent group:
+- "1" (binary 1, mask 0b1): Only visible to agents in group 1 (bit 0 set)
+- "10" (binary 2, mask 0b10): Only visible to agents in group 2 (bit 1 set)
+- "11" (binary 3, mask 0b11): Visible to agents in both group 1 AND group 2 (bits 0 and 1 set)
+- "101" (binary 5, mask 0b101): Visible to agents in group 1 (bit 0) AND group 3 (bit 2)
+- "111" (binary 7, mask 0b111): Visible to agents in groups 1, 2, and 3 (all bits set)
+- etc. (you may invent whatever masks you need to use)
+
+How bitwise masks work:
+- Each bit position represents a different agent group
+- Setting multiple bits makes the episode visible to multiple groups
+- An agent can access an episode if their group mask shares at least one bit with the episode mask
+
+Examples:
+- Trace from a single agent group → use mask matching that group (e.g., "1" for group 1, "10" for group 2)
+- Trace showing collaboration between two groups → use combined mask (e.g., "11" for groups 1 and 2)
+- Trace relevant to all groups → use mask with all bits set (e.g., "111" for three groups)
+
+Choose the mask based on which agent groups would benefit from seeing this context. You should be MINIMALIST in your choice of mask; that is, only agents that NEED this information to continue should see the episode.
+=== END ACCESS MASK GUIDELINES ===
+"""
 
         try:
             result: Union[str, MMObservation, None] = super().run(task, reset=True)
         finally:
-            # Clear context to avoid accidental reuse across runs.
             self._pending_ingest = None
 
         if isinstance(result, MMObservation):

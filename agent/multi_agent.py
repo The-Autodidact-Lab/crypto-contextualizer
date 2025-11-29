@@ -4,13 +4,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from evals.are.simulation.agents.default_agent.app_agent import AppAgent
-from evals.are.simulation.agents.default_agent.base_cortex_agent import BaseCortexAgent
-from evals.are.simulation.agents.default_agent.default_tools import FinalAnswerTool
-from evals.are.simulation.agents.default_agent.tools.json_action_executor import JsonActionExecutor
-from evals.are.simulation.apps import App
-from evals.are.simulation.tools import Tool
-from evals.are.simulation.tool_utils import AppToolAdapter
+from are.simulation.agents.default_agent.app_agent import AppAgent
+from are.simulation.agents.default_agent.base_cortex_agent import BaseCortexAgent
+from are.simulation.agents.default_agent.default_tools import FinalAnswerTool
+from are.simulation.agents.default_agent.tools.json_action_executor import JsonActionExecutor
+from are.simulation.agents.default_agent.prompts import (
+    DEFAULT_ARE_SIMULATION_APP_AGENT_REACT_JSON_SYSTEM_PROMPT,
+)
+from are.simulation.agents.default_agent.termination_methods.are_simulation import (
+    termination_step_are_simulation_final_answer,
+)
+from are.simulation.apps import App
+from are.simulation.tools import Tool
+from are.simulation.tool_utils import AppToolAdapter
 
 from agent.orchestrator import OrchestratorAgent
 from cortex.context_cortex import ContextCortex
@@ -51,7 +57,7 @@ class MultiAgent:
         self.cortex = ContextCortex()
         if os.getenv("GEMINI_API_KEY") is None:
             raise ValueError("GEMINI_API_KEY is not set")
-        self.cortex_agent = CortexAgent(api_key=os.getenv("GEMINI_API_KEY"))
+        self.cortex_agent = CortexAgent(api_key=os.getenv("GEMINI_API_KEY"), cortex=self.cortex)
         
         self.app_agents = []
         # create app agents with cortex integration for each app
@@ -61,6 +67,10 @@ class MultiAgent:
             }
             app_tools_dict["final_answer"] = FinalAnswerTool()
             
+            # Filter out system_prompts from kwargs - app agents should use app-specific prompts
+            # The orchestrator's system prompt is not appropriate for app agents
+            app_kwargs = {k: v for k, v in kwargs.items() if k != "system_prompts"}
+            
             app_base_agent = BaseCortexAgent(
                 cortex=self.cortex,
                 cortex_agent=self.cortex_agent,
@@ -68,8 +78,13 @@ class MultiAgent:
                 agent_mask=1 << (i + 1),
                 tools=app_tools_dict,
                 action_executor=JsonActionExecutor(tools=app_tools_dict),
-                **kwargs,
+                system_prompts={"system_prompt": str(DEFAULT_ARE_SIMULATION_APP_AGENT_REACT_JSON_SYSTEM_PROMPT)},
+                termination_step=termination_step_are_simulation_final_answer(),
+                **app_kwargs,
             )
+            
+            # disable notification system for app agents to prevent duplicate message reads and function miscalls
+            app_base_agent.notification_system = None
 
             app_agent = AppAgent(
                 app_agent=app_base_agent,
@@ -93,6 +108,9 @@ class MultiAgent:
             )
             for app_agent in self.app_agents
         }
+        
+        # add final_answer tool to orchestrator so it can terminate properly
+        orchestrator_tools = {**self.subagents, "final_answer": FinalAnswerTool()}
 
         # initialise orchestrator with app tools
         self.orchestrator = OrchestratorAgent(
@@ -100,8 +118,9 @@ class MultiAgent:
             cortex_agent=self.cortex_agent,
             agent_id="orchestrator",
             agent_mask=0b1,
-            tools=self.subagents,
-            action_executor=JsonActionExecutor(tools=self.subagents),
+            tools=orchestrator_tools,
+            action_executor=JsonActionExecutor(tools=orchestrator_tools),
+            termination_step=termination_step_are_simulation_final_answer(),
             **kwargs,
         )
 

@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-from evals.are.simulation.agents.llm.types import MMObservation
-from evals.are.simulation.agents.llm.llm_engine import LLMEngine, MockLLMEngine
+from are.simulation.agents.llm.types import MMObservation
+from are.simulation.agents.llm.llm_engine import LLMEngine, MockLLMEngine
 
 from cortex import cortex_agent as ca
 from cortex.context_cortex import cortex

@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
-from evals.are.simulation.agents.default_agent.base_cortex_agent import BaseCortexAgent
-from evals.are.simulation.tools import Tool
+from are.simulation.agents.default_agent.base_cortex_agent import BaseCortexAgent
+from are.simulation.tools import Tool
 
 from cortex.context_cortex import ContextCortex
 from cortex.cortex_agent import CortexAgent

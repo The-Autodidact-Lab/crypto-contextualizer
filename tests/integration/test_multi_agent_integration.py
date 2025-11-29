@@ -2,10 +2,10 @@
 
 import os
 import pytest
-from evals.are.simulation.apps.contacts import ContactsApp
-from evals.are.simulation.apps.db import DBApp
-from evals.are.simulation.agents.are_simulation_agent_config import LLMEngineConfig
-from evals.are.simulation.agents.llm.llm_engine_builder import LLMEngineBuilder
+from are.simulation.apps.contacts import ContactsApp
+from are.simulation.apps.db import DBApp
+from are.simulation.agents.are_simulation_agent_config import LLMEngineConfig
+from are.simulation.agents.llm.llm_engine_builder import LLMEngineBuilder
 from agent.multi_agent import MultiAgent
 
 

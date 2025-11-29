@@ -23,8 +23,3 @@ dependencies = [
 markers = [
   "integration: integration tests that may call external services like Gemini"
 ]
-# Note: Tests should be run with the evals/.venv activated:
-#   cd evals && source .venv/bin/activate && cd .. && pytest agent/tests/
-# Or from root with explicit venv:
-#   evals/.venv/bin/python -m pytest agent/tests/
-pythonpath = ["evals"]

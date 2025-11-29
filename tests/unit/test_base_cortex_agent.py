@@ -1,10 +1,10 @@
 # tests to ensure BaseCortexAgent is working as expected
 
 import pytest
-from evals.are.simulation.agents.default_agent.base_cortex_agent import BaseCortexAgent
-from evals.are.simulation.agents.default_agent.tools.json_action_executor import JsonActionExecutor
-from evals.are.simulation.agents.default_agent.default_tools import FinalAnswerTool
-from evals.are.simulation.agents.llm.llm_engine import LLMEngine, MockLLMEngine
+from are.simulation.agents.default_agent.base_cortex_agent import BaseCortexAgent
+from are.simulation.agents.default_agent.tools.json_action_executor import JsonActionExecutor
+from are.simulation.agents.default_agent.default_tools import FinalAnswerTool
+from are.simulation.agents.llm.llm_engine import LLMEngine, MockLLMEngine
 from cortex.context_cortex import ContextCortex, cortex
 from cortex.cortex_agent import CortexAgent
 

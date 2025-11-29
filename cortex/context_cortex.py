@@ -154,6 +154,15 @@ class ContextCortex:
     def get_agent(self, agent_id: str) -> Optional[AgentIdentity]:
         return self._agents.get(agent_id)
 
+    def get_all_agents(self) -> List[AgentIdentity]:
+        """
+        Return a list of all registered agents with their IDs and masks.
+        
+        Returns:
+            List of AgentIdentity objects containing agent_id and mask for each registered agent.
+        """
+        return list(self._agents.values())
+
     
     # ------------------------------------------------------------------
     # LLM operations
